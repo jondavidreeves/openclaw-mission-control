@@ -2,11 +2,15 @@
 set -euo pipefail
 
 PROJECT_ROOT="${1:-/opt/openclaw-mission-control}"
+RUN_USER="${SUDO_USER:-$(whoami)}"
+RUN_GROUP="$(id -gn "$RUN_USER")"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 UNIT_NAME="openclaw-mission-control.service"
 
 # Resolve to absolute path
 PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
+
+echo "Service will run as user: $RUN_USER"
 
 # Generate unit file with correct paths
 cat > "/tmp/$UNIT_NAME" <<EOF
@@ -17,6 +21,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+User=$RUN_USER
+Group=$RUN_GROUP
 WorkingDirectory=$PROJECT_ROOT
 Environment=NODE_ENV=production
 Environment=MISSION_CONTROL_API_HOST=127.0.0.1
