@@ -44,8 +44,22 @@ mkdir -p data
 echo ""
 echo "Installation complete."
 echo ""
-echo "  Start the server:  cd $INSTALL_DIR && npm run server"
-echo "  Open dashboard:    http://localhost:8787"
+
+# Offer systemd service installation
+echo "Would you like to install Mission Control as a systemd service?"
+echo "This lets it start automatically on boot."
 echo ""
-echo "  For systemd setup: sudo ./scripts/install-systemd.sh $INSTALL_DIR"
+read -rp "Install service? [y/N] " install_service
+if [[ "$install_service" =~ ^[Yy]$ ]]; then
+  echo "Installing systemd service (requires sudo)..."
+  sudo bash "$INSTALL_DIR/scripts/install-systemd.sh" "$INSTALL_DIR"
+  echo ""
+  echo "Service installed and running."
+  echo "  View status:  sudo systemctl status openclaw-mission-control"
+  echo "  View logs:    sudo journalctl -u openclaw-mission-control -f"
+else
+  echo "  Start the server:  cd $INSTALL_DIR && npm run server"
+fi
+
+echo "  Open dashboard:    http://localhost:8787"
 echo "  To uninstall:      $INSTALL_DIR/scripts/uninstall.sh"
