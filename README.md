@@ -14,15 +14,50 @@ A real-time operational dashboard for monitoring OpenClaw agent teams. Mission C
 - **SSE streaming** — live updates pushed to the dashboard.
 - **Demo mode** — preview flow animations without live OpenClaw activity.
 
-## Quick start
+## Install
+
+One-liner to clone, build, and set up:
 
 ```bash
-npm ci
-npm run build:all
+curl -fsSL https://raw.githubusercontent.com/jondavidreeves/openclaw-mission-control/main/scripts/install.sh | bash
+```
+
+This installs to `~/openclaw-mission-control` by default. To choose a different location:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jondavidreeves/openclaw-mission-control/main/scripts/install.sh | bash -s /opt/openclaw-mission-control
+```
+
+**Prerequisites:** Git, Node.js 18+, npm.
+
+After installation, start the server:
+
+```bash
+cd ~/openclaw-mission-control
 npm run server
 ```
 
 Open `http://localhost:8787` in your browser.
+
+### Uninstall
+
+```bash
+~/openclaw-mission-control/scripts/uninstall.sh
+```
+
+This stops any running systemd service, removes the installation directory, and leaves your OpenClaw state (`~/.openclaw`) untouched.
+
+### Manual setup
+
+If you prefer to install manually:
+
+```bash
+git clone https://github.com/jondavidreeves/openclaw-mission-control.git
+cd openclaw-mission-control
+npm ci
+npm run build:all
+npm run server
+```
 
 For development with hot reload:
 
@@ -39,16 +74,7 @@ npm run dev
 
 Mission Control runs as a single service that serves both the API and the static frontend.
 
-### Build
-
-```bash
-npm ci
-npm run build:all
-```
-
 ### Install systemd unit
-
-Copy the repo to `/opt/openclaw-mission-control` or pass your install path to the helper script.
 
 ```bash
 sudo ./scripts/install-systemd.sh /opt/openclaw-mission-control

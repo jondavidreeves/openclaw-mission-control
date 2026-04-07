@@ -2,6 +2,39 @@
 
 Mission Control is a read-only operational dashboard for monitoring your OpenClaw agent team. It reads runtime state from OpenClaw and presents it as a live command picture. **No changes are written back to OpenClaw.**
 
+## Installation
+
+The quickest way to install is with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jondavidreeves/openclaw-mission-control/main/scripts/install.sh | bash
+```
+
+This clones the repository, installs dependencies, and builds everything into `~/openclaw-mission-control`. To install to a different location:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jondavidreeves/openclaw-mission-control/main/scripts/install.sh | bash -s /opt/openclaw-mission-control
+```
+
+**Prerequisites:** Git, Node.js 18+, npm.
+
+Then start the server:
+
+```bash
+cd ~/openclaw-mission-control
+npm run server
+```
+
+### Uninstalling
+
+Run the uninstall script from your installation directory:
+
+```bash
+~/openclaw-mission-control/scripts/uninstall.sh
+```
+
+This stops any running systemd service, removes the installation directory, and leaves your OpenClaw state (`~/.openclaw`) untouched. You will be asked to confirm before files are deleted.
+
 ## Getting started
 
 Open the dashboard in your browser (default: `http://localhost:8787`). The sidebar lists the main sections. The right-hand panel shows contextual details when you hover or click elements.
