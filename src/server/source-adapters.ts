@@ -10,6 +10,7 @@ import type {
   MissionControlBoardHandoff,
   MissionControlBoardJob,
   MissionControlBoardOrchestrator,
+  MissionControlBoardTeam,
   SourceStatus,
 } from './types.js';
 
@@ -183,6 +184,65 @@ function roleFromAgentId(agentId: string): string {
   }
 }
 
+export type TeamConfig = {
+  id: string;
+  name: string;
+  category: string;
+  agents?: string[];
+  match?: string;
+};
+
+const UNASSIGNED_TEAM: MissionControlBoardTeam = { id: 'team-unassigned', slug: 'unassigned', name: 'Unassigned', category: 'general' };
+
+const TEAMS_CONFIG_PATH = path.join(process.cwd(), 'data', 'teams.json');
+
+export function loadTeamsConfig(): TeamConfig[] {
+  const data = readJsonFile<TeamConfig[]>(TEAMS_CONFIG_PATH);
+  return data ?? [];
+}
+
+export function saveTeamsConfig(teams: TeamConfig[]): void {
+  fs.mkdirSync(path.dirname(TEAMS_CONFIG_PATH), { recursive: true });
+  fs.writeFileSync(TEAMS_CONFIG_PATH, JSON.stringify(teams, null, 2) + '\n', 'utf8');
+}
+
+function slugFromId(id: string): string {
+  return id.replace(/^team-/, '');
+}
+
+function matchesPattern(agentId: string, pattern: string): boolean {
+  if (pattern.endsWith('*')) {
+    return agentId.startsWith(pattern.slice(0, -1));
+  }
+  return agentId === pattern;
+}
+
+function buildTeamLookup(teamsConfig: TeamConfig[]): (agentId: string) => MissionControlBoardTeam {
+  const agentToTeam = new Map<string, MissionControlBoardTeam>();
+  const patterns: Array<{ pattern: string; team: MissionControlBoardTeam }> = [];
+
+  for (const config of teamsConfig) {
+    const team: MissionControlBoardTeam = { id: config.id, slug: slugFromId(config.id), name: config.name, category: config.category };
+    if (config.agents) {
+      for (const agentId of config.agents) {
+        agentToTeam.set(agentId, team);
+      }
+    }
+    if (config.match) {
+      patterns.push({ pattern: config.match, team });
+    }
+  }
+
+  return (agentId: string) => {
+    const direct = agentToTeam.get(agentId);
+    if (direct) return direct;
+    for (const { pattern, team } of patterns) {
+      if (matchesPattern(agentId, pattern)) return team;
+    }
+    return UNASSIGNED_TEAM;
+  };
+}
+
 export class OpenClawRuntimeTruthAdapter implements RuntimeTruthAdapter {
   readonly source = 'openclaw-runtime';
 
@@ -222,8 +282,13 @@ export class OpenClawRuntimeTruthAdapter implements RuntimeTruthAdapter {
       .slice(0, RECENT_EVENT_LIMIT);
 
     const agentConfigs = config?.agents?.list ?? [{ id: 'main' }];
+    const teamsConfig = loadTeamsConfig();
+    const resolveTeam = buildTeamLookup(teamsConfig);
+    const teamsMap = new Map<string, MissionControlBoardTeam>();
     const agents = agentConfigs.map((agentConfig) => {
       const agentId = agentConfig.id;
+      const team = resolveTeam(agentId);
+      if (!teamsMap.has(team.id)) teamsMap.set(team.id, team);
       const sessionIndex = sessionsByAgent.get(agentId);
       const runningTask = activeTaskRuns.find((task) => agentIdFromSessionKey(task.child_session_key) === agentId && task.runtime === 'subagent');
       const delegatedTask = activeTaskRuns.find((task) => task.runtime === 'subagent' && agentIdFromSessionKey(task.child_session_key) === agentId);
@@ -242,6 +307,7 @@ export class OpenClawRuntimeTruthAdapter implements RuntimeTruthAdapter {
         id: agentId,
         name: agentConfig.identity?.name ?? agentConfig.name ?? defaultNameFromAgentId(agentId),
         role: roleFromAgentId(agentId),
+        teamId: team.id,
         state,
         statusLabel:
           state === 'running'
@@ -260,6 +326,13 @@ export class OpenClawRuntimeTruthAdapter implements RuntimeTruthAdapter {
         degraded: state === 'unavailable',
       } satisfies MissionControlBoardAgent;
     });
+    // Ensure all configured teams appear, even those with no agents yet
+    for (const config of teamsConfig) {
+      if (!teamsMap.has(config.id)) {
+        teamsMap.set(config.id, { id: config.id, slug: slugFromId(config.id), name: config.name, category: config.category });
+      }
+    }
+    const teams = Array.from(teamsMap.values());
 
     const orchestratorJobs = activeTaskRuns.filter((task) => task.runtime === 'subagent' && task.owner_key === 'agent:main:main');
     const orchestrator: MissionControlBoardOrchestrator = {
@@ -423,6 +496,7 @@ export class OpenClawRuntimeTruthAdapter implements RuntimeTruthAdapter {
         failures: failureTaskRuns.length,
         liveEvents: events.length,
       },
+      teams,
       orchestrator,
       agents,
       jobs,

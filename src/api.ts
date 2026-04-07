@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   AgentListItem,
   ApiOverview,
@@ -10,6 +10,7 @@ import type {
   SourceStatus,
   StreamEnvelope,
   TeamActivityPoint,
+  TeamConfigItem,
   TeamFactoryFloorItem,
   TeamPipelineStage,
   TeamRoleCoverage,
@@ -34,6 +35,7 @@ export function useApiData<T>(path: string, initialData: T) {
   const [data, setData] = useState<T>(initialData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fetchKey, setFetchKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,9 +58,11 @@ export function useApiData<T>(path: string, initialData: T) {
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [path, fetchKey]);
 
-  return { data, loading, error, setData };
+  const refetch = useCallback(() => setFetchKey(k => k + 1), []);
+
+  return { data, loading, error, setData, refetch };
 }
 
 const emptyBoard: MissionControlBoard = {
@@ -81,6 +85,7 @@ const emptyBoard: MissionControlBoard = {
     failures: 0,
     liveEvents: 0,
   },
+  teams: [],
   orchestrator: {
     id: 'main',
     name: 'Charlie',
@@ -176,7 +181,7 @@ function buildOverview(board: MissionControlBoard): ApiOverview {
       { key: 'handoffs_live', label: 'handoffs live', value: board.summary.handoffs, unit: 'count', asOf: board.runtime.lastUpdatedAt ?? generatedAt, windowLabel: 'runtime-derived' },
     ],
     summary: {
-      teams: 0,
+      teams: board.teams.length,
       agents: board.agents.length,
       onlineAgents: board.summary.activeAgents,
       activeTasks: board.summary.activeJobs,
@@ -315,6 +320,65 @@ export function useSettingsData() {
 
 export function useSourcesData() {
   return useApiData<SourceStatus[]>('/api/sources', []);
+}
+
+export function useTeamsConfigData() {
+  return useApiData<TeamConfigItem[]>('/api/teams/config', []);
+}
+
+async function extractErrorMessage(response: Response): Promise<string> {
+  const text = await response.text();
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed.error === 'string') return parsed.error;
+  } catch { /* not JSON */ }
+  return text || `Request failed (${response.status})`;
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(await extractErrorMessage(response));
+  return response.json() as Promise<T>;
+}
+
+async function putJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(await extractErrorMessage(response));
+  return response.json() as Promise<T>;
+}
+
+async function deleteJson<T>(path: string): Promise<T> {
+  const response = await fetch(path, { method: 'DELETE' });
+  if (!response.ok) throw new Error(await extractErrorMessage(response));
+  return response.json() as Promise<T>;
+}
+
+export async function createTeam(body: { name: string; category: string }) {
+  return postJson<TeamConfigItem>('/api/teams/config', body);
+}
+
+export async function updateTeam(teamId: string, body: { name?: string; category?: string }) {
+  return putJson<TeamConfigItem>(`/api/teams/config/${encodeURIComponent(teamId)}`, body);
+}
+
+export async function deleteTeam(teamId: string) {
+  return deleteJson<{ ok: boolean }>(`/api/teams/config/${encodeURIComponent(teamId)}`);
+}
+
+export async function assignAgentToTeam(agentId: string, teamId: string) {
+  return putJson<{ ok: boolean }>('/api/teams/assign', { agentId, teamId });
+}
+
+export async function unassignAgent(agentId: string) {
+  return putJson<{ ok: boolean }>('/api/teams/unassign', { agentId });
 }
 
 export function useOverviewSummaryLabel(overview: ApiOverview | null) {

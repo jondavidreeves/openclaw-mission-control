@@ -2,7 +2,7 @@ import { resolveDbPath } from '../db/config.js';
 import { openDatabase } from '../db/connection.js';
 import { getAppliedMigrations } from '../db/migrator.js';
 import { seedMissionControl } from './seed.js';
-import { OpenClawRuntimeTruthAdapter, type RuntimeTruthAdapter, type SourceAdapter } from './source-adapters.js';
+import { OpenClawRuntimeTruthAdapter, loadTeamsConfig, saveTeamsConfig, type RuntimeTruthAdapter, type SourceAdapter, type TeamConfig } from './source-adapters.js';
 import type {
   AgentDetail,
   AgentListItem,
@@ -79,7 +79,7 @@ export class MissionControlService {
     const generatedAt = new Date().toISOString();
     const truthStatus = this.getTruthStatus(board);
     const summary = {
-      teams: 0,
+      teams: board.teams.length,
       agents: board.agents.length,
       onlineAgents: board.agents.filter((agent) => ['idle', 'running'].includes(agent.state)).length,
       activeTasks: board.jobs.length,
@@ -134,19 +134,110 @@ export class MissionControlService {
   }
 
   getFactoryFloor(): TeamFactoryFloorItem[] {
-    return [];
+    const board = this.getMissionControlBoard();
+    return board.teams.map((team) => {
+      const teamAgents = board.agents.filter((a) => a.teamId === team.id);
+      const teamJobs = board.jobs.filter((j) => teamAgents.some((a) => a.id === j.assignedAgentId));
+      const teamBlockers = board.blockers.filter((b) => teamAgents.some((a) => a.id === b.relatedId) || teamJobs.some((j) => j.id === b.relatedId));
+      const staffed = teamAgents.filter((a) => ['running', 'idle'].includes(a.state));
+      const utilizations: number[] = teamAgents.map((a) => a.state === 'running' ? 100 : a.state === 'idle' ? 20 : 0);
+      const avgUtil = utilizations.length ? utilizations.reduce((s, v) => s + v, 0) / utilizations.length : 0;
+      const lastActivity = teamAgents.map((a) => a.lastActiveAt).filter(Boolean).sort().reverse()[0] ?? null;
+      return {
+        id: team.id,
+        slug: team.slug,
+        name: team.name,
+        status: staffed.length > 0 ? 'active' : 'idle',
+        category: team.category,
+        agentCount: teamAgents.length,
+        staffedCount: staffed.length,
+        taskCount: teamJobs.length,
+        blockedTaskCount: teamBlockers.length,
+        avgUtilizationPct: Math.round(avgUtil * 10) / 10,
+        lastActivityAt: lastActivity,
+      };
+    });
   }
 
   getPipeline(): TeamPipelineStage[] {
-    return [];
+    const board = this.getMissionControlBoard();
+    const stages: TeamPipelineStage[] = [];
+    for (const team of board.teams) {
+      const teamAgents = board.agents.filter((a) => a.teamId === team.id);
+      const teamJobs = board.jobs.filter((j) => teamAgents.some((a) => a.id === j.assignedAgentId));
+      const byStage = new Map<string, typeof teamJobs>();
+      for (const job of teamJobs) {
+        const stage = job.state;
+        if (!byStage.has(stage)) byStage.set(stage, []);
+        byStage.get(stage)!.push(job);
+      }
+      for (const [stage, jobs] of byStage) {
+        stages.push({
+          teamId: team.id,
+          teamSlug: team.slug,
+          teamName: team.name,
+          queueStage: stage,
+          taskCount: jobs.length,
+          urgentTaskCount: jobs.filter((j) => j.state === 'failed').length,
+          blockedTaskCount: jobs.filter((j) => j.blockedReason).length,
+          lastUpdatedAt: jobs.map((j) => j.updatedAt).sort().reverse()[0] ?? null,
+        });
+      }
+    }
+    return stages;
   }
 
   getRoleCoverage(): TeamRoleCoverage[] {
-    return [];
+    const board = this.getMissionControlBoard();
+    const coverage: TeamRoleCoverage[] = [];
+    for (const team of board.teams) {
+      const teamAgents = board.agents.filter((a) => a.teamId === team.id);
+      const byRole = new Map<string, typeof teamAgents>();
+      for (const agent of teamAgents) {
+        if (!byRole.has(agent.role)) byRole.set(agent.role, []);
+        byRole.get(agent.role)!.push(agent);
+      }
+      for (const [role, agents] of byRole) {
+        const utilizations: number[] = agents.map((a) => a.state === 'running' ? 100 : a.state === 'idle' ? 20 : 0);
+        coverage.push({
+          teamId: team.id,
+          teamSlug: team.slug,
+          teamName: team.name,
+          role,
+          staffedCount: agents.length,
+          availableCount: agents.filter((a) => ['running', 'idle'].includes(a.state)).length,
+          avgUtilizationPct: Math.round((utilizations.reduce((s, v) => s + v, 0) / utilizations.length) * 10) / 10,
+        });
+      }
+    }
+    return coverage;
   }
 
   getActivity(): TeamActivityPoint[] {
-    return [];
+    const board = this.getMissionControlBoard();
+    const activity: TeamActivityPoint[] = [];
+    for (const team of board.teams) {
+      const teamAgents = board.agents.filter((a) => a.teamId === team.id);
+      const teamEvents = board.events.filter((e) => teamAgents.some((a) => a.id === e.agentId || a.id === e.ownerAgentId));
+      const byDate = new Map<string, typeof teamEvents>();
+      for (const event of teamEvents) {
+        const date = event.occurredAt.slice(0, 10);
+        if (!byDate.has(date)) byDate.set(date, []);
+        byDate.get(date)!.push(event);
+      }
+      for (const [date, events] of byDate) {
+        activity.push({
+          teamId: team.id,
+          teamSlug: team.slug,
+          teamName: team.name,
+          activityDate: date,
+          eventCount: events.length,
+          incidentCount: events.filter((e) => ['warning', 'error'].includes(e.severity)).length,
+          lastEventAt: events.map((e) => e.occurredAt).sort().reverse()[0] ?? null,
+        });
+      }
+    }
+    return activity.sort((a, b) => b.activityDate.localeCompare(a.activityDate));
   }
 
   getAgents(): AgentListItem[] {
@@ -316,6 +407,64 @@ export class MissionControlService {
         activity: this.getActivity(),
       },
     };
+  }
+
+  getTeamsConfig(): TeamConfig[] {
+    return loadTeamsConfig();
+  }
+
+  createTeam(team: { name: string; category: string }): TeamConfig {
+    const teams = loadTeamsConfig();
+    const slug = team.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const id = `team-${slug}`;
+    if (teams.some((t) => t.id === id)) throw new Error(`A department called "${team.name}" already exists. Please choose a different name.`);
+    const entry: TeamConfig = { id, name: team.name, category: team.category, agents: [] };
+    teams.push(entry);
+    saveTeamsConfig(teams);
+    return entry;
+  }
+
+  updateTeam(teamId: string, updates: { name?: string; category?: string }): TeamConfig {
+    const teams = loadTeamsConfig();
+    const team = teams.find((t) => t.id === teamId);
+    if (!team) throw new Error(`That department could not be found. It may have been deleted.`);
+    if (updates.name !== undefined) team.name = updates.name;
+    if (updates.category !== undefined) team.category = updates.category;
+    saveTeamsConfig(teams);
+    return team;
+  }
+
+  deleteTeam(teamId: string): void {
+    const teams = loadTeamsConfig();
+    const index = teams.findIndex((t) => t.id === teamId);
+    if (index === -1) throw new Error(`That department could not be found. It may have already been deleted.`);
+    teams.splice(index, 1);
+    saveTeamsConfig(teams);
+  }
+
+  assignAgentToTeam(agentId: string, teamId: string): void {
+    const teams = loadTeamsConfig();
+    const target = teams.find((t) => t.id === teamId);
+    if (!target) throw new Error(`That department could not be found. It may have been deleted.`);
+    // Remove agent from any existing explicit assignment
+    for (const team of teams) {
+      if (team.agents) {
+        team.agents = team.agents.filter((a) => a !== agentId);
+      }
+    }
+    if (!target.agents) target.agents = [];
+    target.agents.push(agentId);
+    saveTeamsConfig(teams);
+  }
+
+  unassignAgent(agentId: string): void {
+    const teams = loadTeamsConfig();
+    for (const team of teams) {
+      if (team.agents) {
+        team.agents = team.agents.filter((a) => a !== agentId);
+      }
+    }
+    saveTeamsConfig(teams);
   }
 
   close(): void {

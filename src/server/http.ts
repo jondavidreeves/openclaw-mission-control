@@ -1,7 +1,27 @@
+import fs from 'node:fs';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
-import { URL } from 'node:url';
+import path from 'node:path';
+import { URL, fileURLToPath } from 'node:url';
 import { MissionControlService } from './service.js';
 import type { StreamEnvelope } from './types.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distDir = path.resolve(__dirname, '../../dist');
+
+const contentTypes = new Map<string, string>([
+  ['.html', 'text/html; charset=utf-8'],
+  ['.js', 'application/javascript; charset=utf-8'],
+  ['.css', 'text/css; charset=utf-8'],
+  ['.json', 'application/json; charset=utf-8'],
+  ['.svg', 'image/svg+xml'],
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.webp', 'image/webp'],
+  ['.woff', 'font/woff'],
+  ['.woff2', 'font/woff2'],
+]);
 
 export type MissionControlServerOptions = {
   port?: number;
@@ -79,6 +99,41 @@ export function createMissionControlServer(service: MissionControlService = new 
       if (req.method === 'GET' && url.pathname === '/api/sources') return json(res, 200, await service.getSources());
       if (req.method === 'GET' && url.pathname === '/api/mission-control/board') return json(res, 200, service.getMissionControlBoard());
 
+      if (req.method === 'GET' && url.pathname === '/api/teams/config') return json(res, 200, service.getTeamsConfig());
+      if (req.method === 'POST' && url.pathname === '/api/teams/config') {
+        const body = await readBody(req);
+        try {
+          const result = service.createTeam(body);
+          return json(res, 201, result);
+        } catch (err) {
+          return json(res, 400, { error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+
+      const teamConfigMatch = matchPath(url.pathname, '/api/teams/config/');
+      if (teamConfigMatch) {
+        if (req.method === 'PUT') {
+          const body = await readBody(req);
+          const result = service.updateTeam(teamConfigMatch, body);
+          return json(res, 200, result);
+        }
+        if (req.method === 'DELETE') {
+          service.deleteTeam(teamConfigMatch);
+          return json(res, 200, { ok: true });
+        }
+      }
+
+      if (req.method === 'PUT' && url.pathname === '/api/teams/assign') {
+        const body = await readBody(req);
+        service.assignAgentToTeam(body.agentId, body.teamId);
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === 'PUT' && url.pathname === '/api/teams/unassign') {
+        const body = await readBody(req);
+        service.unassignAgent(body.agentId);
+        return json(res, 200, { ok: true });
+      }
+
       const agentMatch = matchPath(url.pathname, '/api/agents/');
       if (req.method === 'GET' && agentMatch) {
         const agent = service.getAgent(agentMatch);
@@ -113,7 +168,7 @@ export function createMissionControlServer(service: MissionControlService = new 
         return;
       }
 
-      return json(res, 404, { error: 'Not found' });
+      return serveStatic(res, url.pathname);
     } catch (error) {
       return json(res, 500, {
         error: 'Internal server error',
@@ -152,11 +207,26 @@ function matchPath(pathname: string, prefix: string): string | null {
 function withCors(res: ServerResponse, statusCode: number, headers: Record<string, string> = {}): ServerResponse {
   res.writeHead(statusCode, {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     ...headers,
   });
   return res;
+}
+
+function readBody(req: IncomingMessage): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch {
+        reject(new Error('Invalid JSON body'));
+      }
+    });
+    req.on('error', reject);
+  });
 }
 
 function json(res: ServerResponse, statusCode: number, body: unknown): void {
@@ -166,4 +236,34 @@ function json(res: ServerResponse, statusCode: number, body: unknown): void {
 
 function sendSse(res: ServerResponse, event: StreamEnvelope): void {
   res.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+}
+
+function serveStatic(res: ServerResponse, pathname: string): void {
+  const cleanPath = pathname === '/' ? '/index.html' : pathname;
+  const resolved = path.resolve(distDir, `.${cleanPath}`);
+
+  if (!resolved.startsWith(distDir)) {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Bad request');
+    return;
+  }
+
+  let filePath = resolved;
+  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+    filePath = path.join(distDir, 'index.html');
+  }
+
+  if (!fs.existsSync(filePath)) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Not found');
+    return;
+  }
+
+  const data = fs.readFileSync(filePath);
+  const ext = path.extname(filePath).toLowerCase();
+  res.writeHead(200, {
+    'Content-Type': contentTypes.get(ext) ?? 'application/octet-stream',
+    'Cache-Control': filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable',
+  });
+  res.end(data);
 }

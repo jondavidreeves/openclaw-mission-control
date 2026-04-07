@@ -1,11 +1,43 @@
 # OpenClaw Mission Control
 
-## Production startup
+A real-time operational dashboard for monitoring OpenClaw agent teams. Mission Control reads live runtime state from OpenClaw and presents it as an animated command picture showing orchestrator-to-agent delegations, task progress, and system health.
 
-Mission Control now supports a two-service deployment model:
+**Mission Control is read-only.** It observes your OpenClaw agents — it never modifies OpenClaw state.
 
-- `openclaw-mission-control-api.service` — operator API + SSE
-- `openclaw-mission-control-web.service` — static frontend server
+## Features
+
+- **Live orchestration board** — animated flow visualisation showing delegations between Charlie (orchestrator) and specialist agents, with hover/click inspection.
+- **Agent roster** — real-time status, utilisation, and heartbeat for every agent.
+- **Task tracking** — delegated work with queue stages, priorities, and ownership.
+- **Department grouping** — organise agents into local departments for easier monitoring (departments are a Mission Control concept, not written to OpenClaw).
+- **Event timeline** — recent runtime events and incidents.
+- **SSE streaming** — live updates pushed to the dashboard.
+- **Demo mode** — preview flow animations without live OpenClaw activity.
+
+## Quick start
+
+```bash
+npm ci
+npm run build:all
+npm run server
+```
+
+Open `http://localhost:8787` in your browser.
+
+For development with hot reload:
+
+```bash
+npm run dev
+```
+
+## Documentation
+
+- [User Guide](docs/user-guide.md) — how to use the dashboard
+- [Changelog](CHANGELOG.md) — version history
+
+## Production deployment
+
+Mission Control runs as a single service that serves both the API and the static frontend.
 
 ### Build
 
@@ -14,7 +46,7 @@ npm ci
 npm run build:all
 ```
 
-### Install systemd units
+### Install systemd unit
 
 Copy the repo to `/opt/openclaw-mission-control` or pass your install path to the helper script.
 
@@ -24,19 +56,51 @@ sudo ./scripts/install-systemd.sh /opt/openclaw-mission-control
 
 ### Service defaults
 
-The bundled unit files intentionally do **not** enable `MISSION_CONTROL_ENABLE_SEED`.
+The bundled unit file intentionally does **not** enable `MISSION_CONTROL_ENABLE_SEED`.
 Production startup therefore defaults to live operator mode.
 
-Useful overrides:
+### Environment variables
 
-- `MISSION_CONTROL_API_HOST` / `MISSION_CONTROL_API_PORT`
-- `MISSION_CONTROL_WEB_HOST` / `MISSION_CONTROL_WEB_PORT`
-- `MISSION_CONTROL_DB_PATH`
-- `OPENCLAW_STATE_DIR` (if the runtime adapter is pointed somewhere other than `~/.openclaw`)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MISSION_CONTROL_API_HOST` | `127.0.0.1` | Bind address |
+| `MISSION_CONTROL_API_PORT` | `8787` | Listen port |
+| `MISSION_CONTROL_DB_PATH` | `./data/mission-control.sqlite` | SQLite database path |
+| `OPENCLAW_STATE_DIR` | `~/.openclaw` | Path to OpenClaw runtime state |
+| `MISSION_CONTROL_ENABLE_SEED` | _(unset)_ | Set to `1` to enable seed/demo data |
 
 After editing unit overrides:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl restart openclaw-mission-control-api.service openclaw-mission-control-web.service
+sudo systemctl restart openclaw-mission-control.service
 ```
+
+## Testing
+
+End-to-end tests use Playwright.
+
+```bash
+npm test              # run all tests headless
+npm run test:ui       # run with Playwright UI
+```
+
+Tests automatically start the server if it is not already running.
+
+## Security note
+
+Mission Control serves over **plain HTTP** with no TLS. All traffic between the browser and the server — including board state, agent data, and events — is unencrypted. By default the server binds to `127.0.0.1` (localhost only), which limits exposure to the local machine.
+
+If you need to access the dashboard remotely, place a TLS-terminating reverse proxy (e.g. Caddy or nginx) in front of Mission Control, or use an SSH tunnel. Do not expose the server directly to an untrusted network without encryption.
+
+## Architecture
+
+- **Frontend**: React 18 SPA with react-router-dom, built with Vite.
+- **Backend**: Node.js HTTP server (no framework), SQLite via better-sqlite3.
+- **Runtime adapter**: Reads agent state, tasks, flows, and sessions from `~/.openclaw`.
+- **Streaming**: Server-Sent Events for real-time board updates.
+- **Departments**: Local config overlay (`data/teams.json`) mapping agents to organisational groups.
+
+## Version
+
+Current release: **v1.0.0** — see [CHANGELOG.md](CHANGELOG.md) for details.

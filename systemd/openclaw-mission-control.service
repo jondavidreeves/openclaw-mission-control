@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenClaw Mission Control
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/openclaw-mission-control
+Environment=NODE_ENV=production
+Environment=MISSION_CONTROL_API_HOST=127.0.0.1
+Environment=MISSION_CONTROL_API_PORT=8787
+ExecStart=/usr/bin/env node /opt/openclaw-mission-control/server-dist/server/index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

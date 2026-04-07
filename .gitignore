@@ -12,3 +12,5 @@ data/
 .env
 vite.config.js
 vite.config.d.ts
+test-results/
+playwright-report/

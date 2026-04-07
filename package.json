@@ -1,7 +1,7 @@
 {
   "name": "openclaw-mission-control",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,8 +11,9 @@
     "build:all": "npm run build && npm run build:server",
     "db:verify": "node scripts/verify-db.mjs",
     "server": "node server-dist/server/index.js",
-    "web": "node server-dist/server/web.js",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "npx playwright test",
+    "test:ui": "npx playwright test --ui"
   },
   "dependencies": {
     "@types/better-sqlite3": "^7.6.13",
@@ -22,6 +23,7 @@
     "react-router-dom": "^6.30.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/node": "^25.5.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

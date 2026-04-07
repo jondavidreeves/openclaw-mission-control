@@ -1,8 +1,9 @@
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useMemo, useState } from 'react';
 import { useMissionStream, useOverviewSummaryLabel } from '../api';
-import { pages, teamSubPages } from '../data/navigation';
+import { pages } from '../data/navigation';
 import { hoverPreviewFallback, inspectorDefault } from '../data/mock';
+import { VERSION } from '../version';
 import type { InspectorPayload, NavIconName, PreviewCard } from '../types';
 
 function NavIcon({ name }: { name: NavIconName }) {
@@ -35,12 +36,12 @@ export function AppShell() {
   const [hoverPreview, setHoverPreview] = useState<PreviewCard | null>(null);
   const [inspector, setInspector] = useState<InspectorPayload>(inspectorDefault);
   const location = useLocation();
-  const navigate = useNavigate();
+
   const stream = useMissionStream();
   const streamSummary = useOverviewSummaryLabel(stream.snapshotOverview);
 
   const activePage = useMemo(
-    () => [...pages, ...teamSubPages].find((item) => item.path === location.pathname),
+    () => pages.find((item) => location.pathname === item.path || location.pathname.startsWith(item.path + '/')),
     [location.pathname],
   );
 
@@ -69,49 +70,27 @@ export function AppShell() {
           </div>
 
           <nav className="nav-stack">
-            {pages.map((item) => {
-              const isTeams = item.id === 'teams';
-              const isActive = isTeams ? location.pathname.startsWith('/teams') : location.pathname === item.path;
-              return (
-                <div key={item.id} className="nav-group">
-                  <NavLink
-                    to={item.path}
-                    className={({ isActive: linkActive }) => `nav-item ${(linkActive || isActive) ? 'active' : ''}`}
-                    onMouseEnter={() => setHoverPreview(item.preview)}
-                    onMouseLeave={() => setHoverPreview(null)}
-                    onClick={() => setInspector(item.inspector)}
-                    title={navCollapsed ? item.label : undefined}
-                  >
-                    <NavIcon name={item.icon} />
-                    {!navCollapsed && <span>{item.label}</span>}
-                  </NavLink>
-
-                  {isTeams && !navCollapsed && (
-                    <div className="subnav">
-                      {teamSubPages.map((subItem) => (
-                        <button
-                          key={subItem.id}
-                          className={`subnav-item ${location.pathname === subItem.path ? 'active' : ''}`}
-                          onMouseEnter={() => setHoverPreview(subItem.preview)}
-                          onMouseLeave={() => setHoverPreview(null)}
-                          onClick={() => {
-                            navigate(subItem.path);
-                            setInspector(subItem.inspector);
-                          }}
-                        >
-                          <NavIcon name={subItem.icon} />
-                          <span>{subItem.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {pages.map((item) => (
+              <div key={item.id} className="nav-group">
+                <NavLink
+                  to={item.path}
+                  className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                  onMouseEnter={() => setHoverPreview(item.preview)}
+                  onMouseLeave={() => setHoverPreview(null)}
+                  onClick={() => setInspector(item.inspector)}
+                  title={navCollapsed ? item.label : undefined}
+                >
+                  <NavIcon name={item.icon} />
+                  {!navCollapsed && <span>{item.label}</span>}
+                </NavLink>
+              </div>
+            ))}
           </nav>
         </div>
 
-        <div className="sidebar-bottom" aria-hidden="true" />
+        <div className="sidebar-bottom">
+          <span className="eyebrow" style={{ textAlign: 'center' }}>Mission Control {VERSION}</span>
+        </div>
       </aside>
 
       <main className="content-shell">

@@ -218,10 +218,18 @@ export type MissionControlBoardOrchestrator = {
   degraded: boolean;
 };
 
+export type MissionControlBoardTeam = {
+  id: string;
+  slug: string;
+  name: string;
+  category: string;
+};
+
 export type MissionControlBoardAgent = {
   id: string;
   name: string;
   role: string;
+  teamId: string | null;
   state: MissionControlBoardState;
   statusLabel: string;
   activeJobId: string | null;
@@ -307,6 +315,7 @@ export type MissionControlBoard = {
     failures: number;
     liveEvents: number;
   };
+  teams: MissionControlBoardTeam[];
   orchestrator: MissionControlBoardOrchestrator;
   agents: MissionControlBoardAgent[];
   jobs: MissionControlBoardJob[];
