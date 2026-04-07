@@ -49,7 +49,7 @@ echo ""
 echo "Would you like to install Mission Control as a systemd service?"
 echo "This lets it start automatically on boot."
 echo ""
-read -rp "Install service? [y/N] " install_service
+read -rp "Install service? [y/N] " install_service </dev/tty
 if [[ "$install_service" =~ ^[Yy]$ ]]; then
   echo "Installing systemd service (requires sudo)..."
   sudo bash "$INSTALL_DIR/scripts/install-systemd.sh" "$INSTALL_DIR"
